@@ -21,7 +21,7 @@ func newAcAutomaton[U uints](terms []string, opt *option) *acAutomaton[U] {
 func (ac *acAutomaton[U]) build(terms []string, opt *option) {
 	ac.compactTrie.build(terms, opt)
 	// bfs 构建fail和outputLink
-	root := ac.root()
+	root := ac.root
 	ac.fail = make([]U, ac.nodeCnt())
 	ac.fail[root] = ^U(0)
 	if opt.withOutputLink {
@@ -110,7 +110,7 @@ func (ac *acAutomaton[U]) load(r io.Reader) error {
 }
 
 func (ac *acAutomaton[U]) MatchFirst(query string) (result MatchResult, ok bool) {
-	p := ac.root()
+	p := ac.root
 outer:
 	for byteIdx, char := range query {
 		// 匹配成功，移动到子节点，失配时，沿fail链回退
@@ -119,7 +119,7 @@ outer:
 				p = child
 				break
 			}
-			if p == ac.root() {
+			if p == ac.root {
 				continue outer
 			}
 			p = ac.fail[p]
@@ -137,7 +137,7 @@ outer:
 
 func (ac *acAutomaton[U]) MatchAll(query string) []MatchResult {
 	var result []MatchResult
-	p := ac.root()
+	p := ac.root
 outer:
 	for byteIdx, char := range query {
 		// 匹配成功，移动到子节点，失配时，沿fail链回退
@@ -146,7 +146,7 @@ outer:
 				p = child
 				break
 			}
-			if p == ac.root() {
+			if p == ac.root {
 				continue outer
 			}
 			p = ac.fail[p]
@@ -154,10 +154,9 @@ outer:
 		endIdx := byteIdx + utf8.RuneLen(char)
 		// 沿输出链回溯所有匹配结果
 		for node := p; node != ^U(0); node = ac.outputLink[node] {
-			ac.rangeTerms(node, func(term termMetadata[U]) bool {
+			for _, term := range ac.getTerms(node) {
 				result = append(result, makeMatchResult(query, term, endIdx))
-				return true
-			})
+			}
 		}
 	}
 	return result
@@ -166,7 +165,7 @@ outer:
 func (ac *acAutomaton[U]) MatchAllUnique(query string) []MatchResult {
 	var result []MatchResult
 	visit := make(map[U]struct{})
-	p := ac.root()
+	p := ac.root
 outer:
 	for byteIdx, char := range query {
 		// 匹配成功，移动到子节点，失配时，沿fail链回退
@@ -175,7 +174,7 @@ outer:
 				p = child
 				break
 			}
-			if p == ac.root() {
+			if p == ac.root {
 				continue outer
 			}
 			p = ac.fail[p]
@@ -188,10 +187,9 @@ outer:
 				break
 			}
 			visit[node] = struct{}{}
-			ac.rangeTerms(node, func(term termMetadata[U]) bool {
+			for _, term := range ac.getTerms(node) {
 				result = append(result, makeMatchResult(query, term, endIdx))
-				return true
-			})
+			}
 		}
 	}
 	return result

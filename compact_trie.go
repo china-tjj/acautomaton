@@ -2,6 +2,7 @@ package acautomaton
 
 import (
 	"io"
+	"unicode/utf8"
 )
 
 // 子节点数量 <= 8：线性索引
@@ -14,8 +15,8 @@ const (
 
 type compactTrie[U uints] struct {
 	// 根节点不一定是0，不保证子节点在父节点后面
-	rootIdx U
-	nodes   []trieNode[U]
+	root  U
+	nodes []trieNode[U]
 	// 节点的边和term一起压缩存储，指针更少，内存更小
 	childrenMaps []map[rune]U // 哈希节点的子节点map
 	edgesChar    []rune       // 线性节点/二分节点的子节点数组
@@ -67,7 +68,7 @@ func (ct *compactTrie[U]) build(terms []string, opt *option) {
 	}
 	if len(ori2cur) > 0 {
 		// 如果发生了换位，修正root和children
-		ct.rootIdx = getCurPos(ct.rootIdx)
+		ct.root = getCurPos(ct.root)
 		for i := U(0); i < nodeCnt; i++ {
 			t.mapChildren(i, ori2cur)
 		}
@@ -118,10 +119,6 @@ func (ct *compactTrie[U]) build(terms []string, opt *option) {
 
 func (ct *compactTrie[U]) nodeCnt() U {
 	return U(len(ct.nodes))
-}
-
-func (ct *compactTrie[U]) root() U {
-	return ct.rootIdx
 }
 
 // 获取线性节点/二分节点的边数
@@ -176,15 +173,10 @@ func (ct *compactTrie[U]) getChild(p U, char rune) (U, bool) {
 	return 0, false
 }
 
-func (ct *compactTrie[U]) rangeTerms(p U, yield func(meta termMetadata[U]) bool) {
+func (ct *compactTrie[U]) getTerms(p U) []termMetadata[U] {
 	termsStart := ct.nodes[p].firstTerm
 	termsEnd := termsStart + ct.getTermsLen(p)
-	for i := termsStart; i < termsEnd; i++ {
-		meta := ct.terms[i]
-		if !yield(meta) {
-			return
-		}
-	}
+	return ct.terms[termsStart:termsEnd]
 }
 
 func (ct *compactTrie[U]) getFirstTerm(p U) (meta termMetadata[U], ok bool) {
@@ -215,7 +207,7 @@ func (ct *compactTrie[U]) rangeChildren(p U, yield func(char rune, child U) bool
 }
 
 func (ct *compactTrie[U]) save(w io.Writer) error {
-	if err := write(w, ct.rootIdx); err != nil {
+	if err := write(w, ct.root); err != nil {
 		return err
 	}
 	if err := write(w, U(len(ct.nodes))); err != nil {
@@ -262,7 +254,7 @@ func (ct *compactTrie[U]) save(w io.Writer) error {
 
 func (ct *compactTrie[U]) load(r io.Reader) error {
 	var err error
-	if ct.rootIdx, err = read[U](r); err != nil {
+	if ct.root, err = read[U](r); err != nil {
 		return err
 	}
 	var nodeCnt U
@@ -321,11 +313,38 @@ func (ct *compactTrie[U]) load(r io.Reader) error {
 }
 
 func (ct *compactTrie[U]) PreMatchFirst(query string) (result MatchResult, ok bool) {
-	return triePreMatchFirst(ct, query)
+	p := ct.root
+	for byteIdx, char := range query {
+		// 匹配成功，移动到子节点，失配时，break
+		var found bool
+		p, found = ct.getChild(p, char)
+		if !found {
+			break
+		}
+		if term, ok := ct.getFirstTerm(p); ok {
+			endIdx := byteIdx + utf8.RuneLen(char)
+			return makeMatchResult(query, term, endIdx), true
+		}
+	}
+	return MatchResult{}, false
 }
 
 func (ct *compactTrie[U]) PreMatchAll(query string) []MatchResult {
-	return triePreMatchAll(ct, query)
+	var results []MatchResult
+	p := ct.root
+	for byteIdx, char := range query {
+		// 匹配成功，移动到子节点，失配时，break
+		var found bool
+		p, found = ct.getChild(p, char)
+		if !found {
+			break
+		}
+		endIdx := byteIdx + utf8.RuneLen(char)
+		for _, term := range ct.getTerms(p) {
+			results = append(results, makeMatchResult(query, term, endIdx))
+		}
+	}
+	return results
 }
 
 func (ct *compactTrie[U]) Save(w io.Writer) error {

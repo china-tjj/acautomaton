@@ -18,6 +18,7 @@ type trieNode[U uints] struct {
 	firstTerm U // 链表头下标
 }
 
+// 仅用于辅助构建 compactTrie，未实现 ITrie
 type trie[U uints] struct {
 	// 根节点是 0，子节点一定在父节点后面
 	nodes []trieNode[U]
@@ -66,10 +67,6 @@ func (t *trie[U]) build(terms []string, opt *option) {
 		t.addTerm(p, U(len(term)))
 	}
 	t.freeEdges = deque[U]{} // 后面不会使用了，可以提前释放
-}
-
-func (t *trie[U]) root() U {
-	return 0
 }
 
 func (t *trie[U]) newNode() U {
@@ -166,23 +163,6 @@ func (t *trie[U]) childrenLen(p U) U {
 	return cnt
 }
 
-// 遍历节点的所有子节点，顺序不定
-func (t *trie[U]) rangeChildren(p U, yield func(char rune, child U) bool) {
-	if m := t.childrenMap(p); m != nil {
-		for char, child := range m {
-			if !yield(char, child) {
-				return
-			}
-		}
-		return
-	}
-	for i := t.nodes[p].firstEdge; i != ^U(0); i = t.edgesNext[i] {
-		if !yield(t.edgesChar[i], t.edgesChild[i]) {
-			return
-		}
-	}
-}
-
 // 返回节点的边数组，append 到 buf 数组的末尾，建议提前为 buf 数组分配好容量
 func (t *trie[U]) getEdges(p U, edgesCharBuf []rune, edgesChildBuf []U) ([]rune, []U) {
 	if m := t.childrenMap(p); m != nil {
@@ -204,21 +184,6 @@ func (t *trie[U]) getTerm(i U) termMetadata[U] {
 		len: t.terms[i].len,
 		idx: i,
 	}
-}
-
-func (t *trie[U]) rangeTerms(p U, yield func(meta termMetadata[U]) bool) {
-	for i := t.nodes[p].firstTerm; i != ^U(0); i = t.terms[i].next {
-		if !yield(t.getTerm(i)) {
-			return
-		}
-	}
-}
-
-func (t *trie[U]) getFirstTerm(p U) (meta termMetadata[U], ok bool) {
-	if i := t.nodes[p].firstTerm; i != ^U(0) {
-		return t.getTerm(i), true
-	}
-	return meta, false
 }
 
 // 返回按 char 升序排列的边数组，append 到 buf 数组的末尾，建议提前为 buf 数组分配好容量
@@ -295,12 +260,4 @@ func (t *trie[U]) freeNode(p U) {
 		t.childrenMaps[node.firstEdge] = nil
 	}
 	// 链表就不用free了，不会减小实际内存大小
-}
-
-func (t *trie[U]) PreMatchFirst(query string) (result MatchResult, ok bool) {
-	return triePreMatchFirst(t, query)
-}
-
-func (t *trie[U]) PreMatchAll(query string) []MatchResult {
-	return triePreMatchAll(t, query)
 }
