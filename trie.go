@@ -8,8 +8,9 @@ type termMetadata[U uints] struct {
 }
 
 type linkedTermMetadata[U uints] struct {
-	termMetadata[U]
-	next U
+	len  U // term 的长度
+	next U // 下一个 term 的索引
+	// trie.terms 和建树 terms 一一对应，所以不用存 idx
 }
 
 type trieNode[U uints] struct {
@@ -35,18 +36,20 @@ type trie[U uints] struct {
 }
 
 func (t *trie[U]) build(terms []string, opt *option) {
-	initCap := max(0, opt.trieInitCap)
+	initCap := max(1, opt.trieInitCap)
 	t.nodes = make([]trieNode[U], 0, initCap)
-	t.edgesChar = make([]rune, 0, initCap)
-	t.edgesChild = make([]U, 0, initCap)
-	t.edgesNext = make([]U, 0, initCap)
-	t.terms = make([]linkedTermMetadata[U], 0, initCap)
+	// 边数 = 节点数 - 1
+	t.edgesChar = make([]rune, 0, initCap-1)
+	t.edgesChild = make([]U, 0, initCap-1)
+	t.edgesNext = make([]U, 0, initCap-1)
+	// 和建树 terms 一一对应
+	t.terms = make([]linkedTermMetadata[U], 0, len(terms))
 	t.mapFlags = bitmap{}
 	t.mapFlags.Reserve(initCap)
 	// 先放 root
 	t.newNode()
 	// 建树
-	for index, term := range terms {
+	for _, term := range terms {
 		// 忽略空字符串
 		if term == "" {
 			continue
@@ -60,10 +63,7 @@ func (t *trie[U]) build(terms []string, opt *option) {
 			}
 			p = child
 		}
-		t.addTerm(p, termMetadata[U]{
-			len: U(len(term)),
-			idx: U(index),
-		})
+		t.addTerm(p, U(len(term)))
 	}
 	t.freeEdges = deque[U]{} // 后面不会使用了，可以提前释放
 }
@@ -143,12 +143,12 @@ func (t *trie[U]) setChild(p U, char rune, child U) {
 	t.childrenMaps = append(t.childrenMaps, m)
 }
 
-func (t *trie[U]) addTerm(p U, meta termMetadata[U]) {
+func (t *trie[U]) addTerm(p U, termLen U) {
 	node := &t.nodes[p]
 	newIdx := U(len(t.terms))
 	t.terms = append(t.terms, linkedTermMetadata[U]{
-		termMetadata: meta,
-		next:         node.firstTerm,
+		len:  termLen,
+		next: node.firstTerm,
 	})
 	node.firstTerm = newIdx
 }
@@ -199,9 +199,16 @@ func (t *trie[U]) getEdges(p U, edgesCharBuf []rune, edgesChildBuf []U) ([]rune,
 	return edgesCharBuf, edgesChildBuf
 }
 
+func (t *trie[U]) getTerm(i U) termMetadata[U] {
+	return termMetadata[U]{
+		len: t.terms[i].len,
+		idx: i,
+	}
+}
+
 func (t *trie[U]) rangeTerms(p U, yield func(meta termMetadata[U]) bool) {
 	for i := t.nodes[p].firstTerm; i != ^U(0); i = t.terms[i].next {
-		if !yield(t.terms[i].termMetadata) {
+		if !yield(t.getTerm(i)) {
 			return
 		}
 	}
@@ -209,7 +216,7 @@ func (t *trie[U]) rangeTerms(p U, yield func(meta termMetadata[U]) bool) {
 
 func (t *trie[U]) getFirstTerm(p U) (meta termMetadata[U], ok bool) {
 	if i := t.nodes[p].firstTerm; i != ^U(0) {
-		return t.terms[i].termMetadata, true
+		return t.getTerm(i), true
 	}
 	return meta, false
 }
@@ -229,7 +236,7 @@ func (t *trie[U]) getSortedEdges(p U, edgesCharBuf []rune, edgesChildBuf []U) ([
 func (t *trie[U]) getTerms(p U, buf []termMetadata[U]) []termMetadata[U] {
 	begin := len(buf)
 	for i := t.nodes[p].firstTerm; i != ^U(0); i = t.terms[i].next {
-		buf = append(buf, t.terms[i].termMetadata)
+		buf = append(buf, t.getTerm(i))
 	}
 	reverse(buf[begin:]) // 采用头插的，需反向一下保证插入顺序
 	return buf
