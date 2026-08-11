@@ -11,27 +11,38 @@ type ints interface {
 		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr
 }
 
+//go:nosplit
+func noEscapePtr[T any](p *T) *T {
+	x := uintptr(unsafe.Pointer(p))
+	return (*T)(unsafe.Pointer(x ^ 0))
+}
+
+//go:nosplit
+func noEscapeSlice[T any](s []T) []T {
+	return unsafe.Slice(noEscapePtr(unsafe.SliceData(s)), len(s))
+}
+
 func write[T ints](w io.Writer, v T) error {
 	switch unsafe.Sizeof(v) {
 	case 1:
 		var data [1]byte
 		data[0] = byte(v)
-		_, err := w.Write(data[:])
+		_, err := w.Write(noEscapeSlice(data[:]))
 		return err
 	case 2:
 		var data [2]byte
 		binary.LittleEndian.PutUint16(data[:], uint16(v))
-		_, err := w.Write(data[:])
+		_, err := w.Write(noEscapeSlice(data[:]))
 		return err
 	case 4:
 		var data [4]byte
 		binary.LittleEndian.PutUint32(data[:], uint32(v))
-		_, err := w.Write(data[:])
+		_, err := w.Write(noEscapeSlice(data[:]))
 		return err
 	case 8:
 		var data [8]byte
 		binary.LittleEndian.PutUint64(data[:], uint64(v))
-		_, err := w.Write(data[:])
+		_, err := w.Write(noEscapeSlice(data[:]))
 		return err
 	default:
 		panic("unreachable")
@@ -42,28 +53,28 @@ func read[T ints](r io.Reader) (v T, err error) {
 	switch unsafe.Sizeof(v) {
 	case 1:
 		var data [1]byte
-		_, err = io.ReadFull(r, data[:])
+		_, err = io.ReadFull(r, noEscapeSlice(data[:]))
 		if err != nil {
 			return v, err
 		}
 		return T(data[0]), nil
 	case 2:
 		var data [2]byte
-		_, err = io.ReadFull(r, data[:])
+		_, err = io.ReadFull(r, noEscapeSlice(data[:]))
 		if err != nil {
 			return v, err
 		}
 		return T(binary.LittleEndian.Uint16(data[:])), nil
 	case 4:
 		var data [4]byte
-		_, err = io.ReadFull(r, data[:])
+		_, err = io.ReadFull(r, noEscapeSlice(data[:]))
 		if err != nil {
 			return v, err
 		}
 		return T(binary.LittleEndian.Uint32(data[:])), nil
 	case 8:
 		var data [8]byte
-		_, err = io.ReadFull(r, data[:])
+		_, err = io.ReadFull(r, noEscapeSlice(data[:]))
 		if err != nil {
 			return v, err
 		}
